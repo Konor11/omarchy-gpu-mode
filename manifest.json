@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "dan.gpu-mode",
+  "name": "GPU mode",
+  "version": "1.0.0",
+  "author": "dan",
+  "description": "Three-state GPU switch: Integrated / Hybrid / Discrete (NVIDIA PRIME offload)",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "GPU mode",
+    "description": "Switch Intel / Hybrid / NVIDIA PRIME offload",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
