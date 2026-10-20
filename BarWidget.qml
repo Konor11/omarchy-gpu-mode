@@ -53,7 +53,6 @@ BarWidget {
   }
 
   function refresh() {
-    if (!modeProc.running) modeProc.running = true
     if (!statProc.running) statProc.running = true
   }
   function setMode(m) {
