@@ -16,8 +16,11 @@
 #   1. hyprctl keyword env   — Hyprland's own env (directly dispatched apps)
 #   2. systemctl --user      — systemd user env (uwsm-app / menu-launched apps)
 #   3. dbus-update-activation — D-Bus activation env (dbus-activated apps)
-# hl.env() in the toggle lua is unreliable for OVERWRITING existing vars on
-# reload, so the three live channels are what actually reach new processes.
+#
+# Hybrid mode UNSETS the NVIDIA env vars (instead of setting neutral values)
+# so the system returns to its natural default: Intel renders, prime-run
+# overrides per-app. "all" is NOT a valid __VK_LAYER_NV_optimus value and
+# breaks the Vulkan layer — only NVIDIA_only and non_NVIDIA_only are valid.
 set -euo pipefail
 
 STATE_DIR="$HOME/.local/state/omarchy"
@@ -34,11 +37,12 @@ current_mode() {
 }
 
 # Per-mode values: PRIME offload flag, GLX vendor, Vulkan layer filter, VA-API driver.
+# Hybrid uses empty strings → equivalent to unset for each consumer.
 mode_values() {
   case "$1" in
   nvidia)     PRIME=1; GLX=nvidia; VK=NVIDIA_only;     LIBVA=nvidia ;;
   integrated) PRIME=0; GLX=mesa;   VK=non_NVIDIA_only; LIBVA=iHD ;;
-  hybrid | *) PRIME=0; GLX=mesa;   VK=all;             LIBVA=iHD ;;
+  hybrid | *) PRIME=0; GLX="";     VK="";              LIBVA=iHD ;;
   esac
 }
 
@@ -58,23 +62,43 @@ LUA
 # script's stdout for the mode name, so env commands must not print anything.
 apply_live_env() {
   mode_values "$1"
-  # 1. Hyprland env (directly dispatched apps, keybind-launched terminals)
-  hyprctl keyword env __NV_PRIME_RENDER_OFFLOAD,"$PRIME" >/dev/null 2>&1 || true
-  hyprctl keyword env __GLX_VENDOR_LIBRARY_NAME,"$GLX" >/dev/null 2>&1 || true
-  hyprctl keyword env __VK_LAYER_NV_optimus,"$VK" >/dev/null 2>&1 || true
-  hyprctl keyword env LIBVA_DRIVER_NAME,"$LIBVA" >/dev/null 2>&1 || true
-  # 2. systemd user env — THE channel for uwsm-app / menu-launched apps on Omarchy
-  systemctl --user set-environment \
-    "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
-    "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
-    "__VK_LAYER_NV_optimus=$VK" \
-    "LIBVA_DRIVER_NAME=$LIBVA" >/dev/null 2>&1 || true
-  # 3. D-Bus activation env — for dbus-activated services (Flatpak, portals, etc.)
-  dbus-update-activation-environment \
-    "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
-    "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
-    "__VK_LAYER_NV_optimus=$VK" \
-    "LIBVA_DRIVER_NAME=$LIBVA" >/dev/null 2>&1 || true
+  if [ "$1" = "hybrid" ]; then
+    # Hybrid = natural default: UNSET the NVIDIA env vars from systemd user
+    # env so uwsm-app-launched apps see no global override. prime-run still
+    # works per-app because it exports its own env in the child process.
+    systemctl --user unset-environment \
+      __NV_PRIME_RENDER_OFFLOAD \
+      __GLX_VENDOR_LIBRARY_NAME \
+      __VK_LAYER_NV_optimus 2>/dev/null || true
+    # LIBVA stays iHD (correct for Intel video decode)
+    systemctl --user set-environment "LIBVA_DRIVER_NAME=iHD" 2>/dev/null || true
+    # D-Bus and Hyprland can't unset; set to empty (= unset for consumers)
+    dbus-update-activation-environment \
+      "__NV_PRIME_RENDER_OFFLOAD=" \
+      "__GLX_VENDOR_LIBRARY_NAME=" \
+      "__VK_LAYER_NV_optimus=" \
+      "LIBVA_DRIVER_NAME=iHD" 2>/dev/null || true
+    hyprctl keyword env __NV_PRIME_RENDER_OFFLOAD,0 >/dev/null 2>&1 || true
+    hyprctl keyword env __GLX_VENDOR_LIBRARY_NAME, >/dev/null 2>&1 || true
+    hyprctl keyword env __VK_LAYER_NV_optimus, >/dev/null 2>&1 || true
+    hyprctl keyword env LIBVA_DRIVER_NAME,iHD >/dev/null 2>&1 || true
+  else
+    # nvidia / integrated: set all 4 vars through all 3 channels
+    hyprctl keyword env __NV_PRIME_RENDER_OFFLOAD,"$PRIME" >/dev/null 2>&1 || true
+    hyprctl keyword env __GLX_VENDOR_LIBRARY_NAME,"$GLX" >/dev/null 2>&1 || true
+    hyprctl keyword env __VK_LAYER_NV_optimus,"$VK" >/dev/null 2>&1 || true
+    hyprctl keyword env LIBVA_DRIVER_NAME,"$LIBVA" >/dev/null 2>&1 || true
+    systemctl --user set-environment \
+      "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
+      "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
+      "__VK_LAYER_NV_optimus=$VK" \
+      "LIBVA_DRIVER_NAME=$LIBVA" 2>/dev/null || true
+    dbus-update-activation-environment \
+      "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
+      "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
+      "__VK_LAYER_NV_optimus=$VK" \
+      "LIBVA_DRIVER_NAME=$LIBVA" 2>/dev/null || true
+  fi
 }
 
 notify_mode() {
