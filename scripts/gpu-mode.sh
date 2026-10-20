@@ -73,6 +73,34 @@ notify_mode() {
   fi
 }
 
+# Apply env to the running compositor as well as to the Lua file. hl.env() is
+# only read at config load time in some Hyprland builds, so hyprctl setenv
+# covers reloads that skip the module.
+apply_live_env() {
+  local m="$1"
+  case "$m" in
+  nvidia)
+    hyprctl setenv __NV_PRIME_RENDER_OFFLOAD 1 >/dev/null 2>&1 || true
+    hyprctl setenv __VK_LAYER_NV_optimus NVIDIA_only >/dev/null 2>&1 || true
+    hyprctl setenv __GLX_VENDOR_LIBRARY_NAME nvidia >/dev/null 2>&1 || true
+    hyprctl setenv LIBVA_DRIVER_NAME nvidia >/dev/null 2>&1 || true
+    ;;
+  integrated)
+    hyprctl setenv __NV_PRIME_RENDER_OFFLOAD 0 >/dev/null 2>&1 || true
+    hyprctl setenv __VK_LAYER_NV_optimus non_NVIDIA_only >/dev/null 2>&1 || true
+    hyprctl setenv __GLX_VENDOR_LIBRARY_NAME "" >/dev/null 2>&1 || true
+    hyprctl setenv LIBVA_DRIVER_NAME iHD >/dev/null 2>&1 || true
+    ;;
+  hybrid | *)
+    hyprctl setenv __NV_PRIME_RENDER_OFFLOAD 0 >/dev/null 2>&1 || true
+    hyprctl setenv __VK_LAYER_NV_optimus "" >/dev/null 2>&1 || true
+    hyprctl setenv __GLX_VENDOR_LIBRARY_NAME "" >/dev/null 2>&1 || true
+    hyprctl setenv LIBVA_DRIVER_NAME iHD >/dev/null 2>&1 || true
+    ;;
+  esac
+  dbus-update-activation-environment --systemd __NV_PRIME_RENDER_OFFLOAD __VK_LAYER_NV_optimus __GLX_VENDOR_LIBRARY_NAME LIBVA_DRIVER_NAME >/dev/null 2>&1 || true
+}
+
 case "${1:-get}" in
 get | "")
   current_mode
@@ -86,6 +114,7 @@ set)
   esac
   printf '%s' "$m" >"$STATE"
   write_toggle "$m"
+  apply_live_env "$m"
   hyprctl reload >/dev/null 2>&1 || true
   # Refresh every bar instance of the widget (best-effort; harmless if absent).
   omarchy-shell dan.gpu-mode refresh >/dev/null 2>&1 || true
