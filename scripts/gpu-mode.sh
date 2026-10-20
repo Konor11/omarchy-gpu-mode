@@ -10,6 +10,14 @@
 #
 # State:  ~/.local/state/omarchy/gpu-mode
 # Hypr:   ~/.local/state/omarchy/toggles/hypr/gpu-mode.lua  (auto-loaded on reload)
+#
+# Environment is pushed through THREE channels so every launch path picks it
+# up live (no reboot, no re-login):
+#   1. hyprctl keyword env   — Hyprland's own env (directly dispatched apps)
+#   2. systemctl --user      — systemd user env (uwsm-app / menu-launched apps)
+#   3. dbus-update-activation — D-Bus activation env (dbus-activated apps)
+# hl.env() in the toggle lua is unreliable for OVERWRITING existing vars on
+# reload, so the three live channels are what actually reach new processes.
 set -euo pipefail
 
 STATE_DIR="$HOME/.local/state/omarchy"
@@ -26,8 +34,6 @@ current_mode() {
 }
 
 # Per-mode values: PRIME offload flag, GLX vendor, Vulkan layer filter, VA-API driver.
-# GLX non-NVIDIA = "mesa" (explicit, safe); Vulkan "all" is an unrecognized value for
-# the NVIDIA layer so it falls through to its default (every device visible = hybrid).
 mode_values() {
   case "$1" in
   nvidia)     PRIME=1; GLX=nvidia; VK=NVIDIA_only;     LIBVA=nvidia ;;
@@ -48,22 +54,27 @@ hl.env("LIBVA_DRIVER_NAME", "$LIBVA")
 LUA
 }
 
-# Apply to the running compositor so newly spawned windows pick the mode up now.
-# `hyprctl keyword env KEY,VALUE` is the runtime command (hyprctl setenv/getenv do
-# not exist). Values are raw strings, no quotes. hl.env() alone is unreliable on
-# reload for a live session, so the keyword is what actually reaches new apps.
+# Push env through all three live channels. Silent: the widget reads this
+# script's stdout for the mode name, so env commands must not print anything.
 apply_live_env() {
   mode_values "$1"
+  # 1. Hyprland env (directly dispatched apps, keybind-launched terminals)
   hyprctl keyword env __NV_PRIME_RENDER_OFFLOAD,"$PRIME" >/dev/null 2>&1 || true
   hyprctl keyword env __GLX_VENDOR_LIBRARY_NAME,"$GLX" >/dev/null 2>&1 || true
   hyprctl keyword env __VK_LAYER_NV_optimus,"$VK" >/dev/null 2>&1 || true
   hyprctl keyword env LIBVA_DRIVER_NAME,"$LIBVA" >/dev/null 2>&1 || true
-  # Also push into the D-Bus/systemd activation env so dbus-launched apps see it.
+  # 2. systemd user env — THE channel for uwsm-app / menu-launched apps on Omarchy
+  systemctl --user set-environment \
+    "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
+    "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
+    "__VK_LAYER_NV_optimus=$VK" \
+    "LIBVA_DRIVER_NAME=$LIBVA" >/dev/null 2>&1 || true
+  # 3. D-Bus activation env — for dbus-activated services (Flatpak, portals, etc.)
   dbus-update-activation-environment \
-    __NV_PRIME_RENDER_OFFLOAD="$PRIME" \
-    __GLX_VENDOR_LIBRARY_NAME="$GLX" \
-    __VK_LAYER_NV_optimus="$VK" \
-    LIBVA_DRIVER_NAME="$LIBVA" >/dev/null 2>&1 || true
+    "__NV_PRIME_RENDER_OFFLOAD=$PRIME" \
+    "__GLX_VENDOR_LIBRARY_NAME=$GLX" \
+    "__VK_LAYER_NV_optimus=$VK" \
+    "LIBVA_DRIVER_NAME=$LIBVA" >/dev/null 2>&1 || true
 }
 
 notify_mode() {
