@@ -18,6 +18,7 @@ BarWidget {
   moduleName: "dan.gpu-mode"
 
   readonly property string script: Quickshell.env("HOME") + "/.config/omarchy/plugins/dan.gpu-mode/scripts/gpu-mode.sh"
+  readonly property string stateFile: Quickshell.env("HOME") + "/.local/state/omarchy/gpu-mode"
 
   property string mode: "hybrid"
   property string gpuUtil: "--"
@@ -67,13 +68,15 @@ BarWidget {
   implicitWidth: btn.implicitWidth
   implicitHeight: btn.implicitHeight
 
-  ShellIpc {
-    target: "dan.gpu-mode"
-    function refresh(): void { root.broadcast("refresh") }
-    function set(m: string): void { root.setMode(m) }
-    function cycle(): void {
-      root.setMode(root.mode === "integrated" ? "hybrid" : (root.mode === "hybrid" ? "nvidia" : "integrated"))
-    }
+  // Third-party plugins cannot use the shell-internal ShellIpc type, so the
+  // state file is watched instead: a mode switched from a keybind, another
+  // terminal, or another monitor's instance of this widget is picked up live.
+  FileView {
+    path: root.stateFile
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.mode = root.norm(text())
+    onFileChanged: reload()
   }
 
   Timer {
@@ -82,15 +85,6 @@ BarWidget {
     repeat: true
     triggeredOnStart: true
     onTriggered: root.refresh()
-  }
-
-  Process {
-    id: modeProc
-    command: [root.script, "get"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.mode = root.norm(text)
-    }
   }
 
   Process {
