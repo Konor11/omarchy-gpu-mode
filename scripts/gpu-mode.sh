@@ -104,9 +104,9 @@ apply_live_env() {
 notify_mode() {
   local m="$1" msg
   case "$m" in
-  integrated) msg="Intel only — dGPU bypassed (power saving)" ;;
-  hybrid) msg="Intel default — dGPU via prime-run" ;;
-  nvidia) msg="Discrete — all apps render on NVIDIA" ;;
+  integrated) msg="Intel only. Reopen apps from new terminal (Super+Enter)" ;;
+  hybrid) msg="Intel default + prime-run. Reopen apps from new terminal" ;;
+  nvidia) msg="All on NVIDIA. Reopen apps from new terminal (Super+Enter)" ;;
   esac
   if command -v omarchy-notification-send >/dev/null 2>&1; then
     omarchy-notification-send -u low "GPU: $m" "$msg" >/dev/null 2>&1 || true
@@ -132,6 +132,9 @@ set)
   hyprctl reload >/dev/null 2>&1 || true
   notify_mode "$m"
   printf '%s' "$m"
+  # Restart the Omarchy shell so the bar/launcher pick up the new env.
+  # Detached (setsid) + delayed (sleep 1) so this script finishes first.
+  setsid bash -c 'sleep 1 && omarchy restart shell' </dev/null >/dev/null 2>&1 &
   ;;
 cycle)
   case "$(current_mode)" in
